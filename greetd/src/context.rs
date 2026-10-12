@@ -119,6 +119,7 @@ impl Context {
         user: &str,
         service: &str,
         cmd: Vec<String>,
+        env: Vec<String>,
     ) -> Result<SessionChild, Error> {
         let mut scheduled_session = Session::new_external()?;
         scheduled_session
@@ -140,7 +141,7 @@ impl Context {
             }
         }
 
-        scheduled_session.send_args(cmd, vec![]).await?;
+        scheduled_session.send_args(cmd, env).await?;
         scheduled_session.start().await
     }
 
@@ -148,11 +149,18 @@ impl Context {
     /// function does not take the inner lock, and can thus be used while it is
     /// held.
     async fn start_greeter(&self) -> Result<SessionChild, Error> {
+        // WMDE: tell the greeter that greetd ends it after a handover, so it
+        // keeps running once its session has started instead of exiting.
+        let env = match self.session_vt {
+            SessionVt::Next => vec!["GREETD_HANDOVER=1".to_string()],
+            SessionVt::Same => vec![],
+        };
         self.start_unauthenticated_session(
             SessionClass::Greeter,
             &self.greeter_user,
             &self.greeter_service,
             vec![self.greeter_bin.to_string()],
+            env,
         )
         .await
     }
@@ -204,7 +212,7 @@ impl Context {
         let mut inner = self.inner.write().await;
         inner.current = Some(SessionChildSet {
             child: self
-                .start_unauthenticated_session(SessionClass::User, user, service, cmd)
+                .start_unauthenticated_session(SessionClass::User, user, service, cmd, vec![])
                 .await?,
             time: Instant::now(),
             is_greeter: false,
