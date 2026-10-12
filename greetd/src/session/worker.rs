@@ -186,25 +186,13 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
             // Opening our target terminal.
             let target_term = terminal::Terminal::open(&path)?;
 
-            // WMDE: a greeter coming back after a handed-over session (GREETD_HANDOVER)
-            // gets its VT in graphics mode. Switching to a text VT makes the kernel bring
-            // its console back, which blanked the screen between the desktop's last frame
-            // and the greeter's first; switching between graphics VTs leaves the last
-            // frame up. The greeter is a compositor, it has no text to show.
-            let keep_graphics = matches!(class, SessionClass::Greeter)
-                && env.iter().any(|e| e == "GREETD_HANDOVER=1");
+            // Set the target VT mode to text for compatibility. Other login managers
+            // set this to graphics, but that disallows start of textual applications,
+            // which greetd aims to support.
+            target_term.kd_setmode(terminal::KdMode::Text)?;
 
-            if keep_graphics {
-                target_term.kd_setmode(terminal::KdMode::Graphics)?;
-            } else {
-                // Set the target VT mode to text for compatibility. Other login managers
-                // set this to graphics, but that disallows start of textual applications,
-                // which greetd aims to support.
-                target_term.kd_setmode(terminal::KdMode::Text)?;
-
-                // Clear TTY so that it will be empty when we switch to it.
-                target_term.term_clear()?;
-            }
+            // Clear TTY so that it will be empty when we switch to it.
+            target_term.term_clear()?;
 
             // A bit more work if a VT switch is required.
             if switch && vt != target_term.vt_get_current()? {
