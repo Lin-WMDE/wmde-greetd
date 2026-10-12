@@ -34,6 +34,31 @@ impl FromStr for VtSelection {
     }
 }
 
+/// WMDE: where a user session started from the greeter runs.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
+pub enum SessionVt {
+    /// On the greeter's VT, once the greeter has exited (upstream behaviour).
+    #[default]
+    Same,
+    /// On a free VT of its own while the greeter keeps running; greetd switches
+    /// to it once the session has taken its VT over, then ends the greeter. A
+    /// greeter whose compositor keeps its last frame across the switch thus
+    /// hands the screen over without the console showing in between.
+    Next,
+}
+
+impl FromStr for SessionVt {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "same" => Ok(SessionVt::Same),
+            "next" => Ok(SessionVt::Next),
+            v => Err(format!("could not parse session_vt: {v}")),
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Default)]
 pub struct ConfigSession {
     pub command: String,
@@ -50,6 +75,7 @@ pub struct ConfigInternal {
 pub struct ConfigTerminal {
     pub vt: VtSelection,
     pub switch: bool,
+    pub session_vt: SessionVt,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -186,6 +212,12 @@ fn parse_config(config_str: &str) -> Result<ConfigFile, Error> {
                 .unwrap_or(&"true")
                 .parse()
                 .map_err(|e| format!("could not parse switch: {e}"))?,
+            session_vt: match section.get("session_vt") {
+                Some(v) => maybe_unquote(v)
+                    .map_err(|e| format!("unable to read terminal.session_vt: {e}"))?
+                    .parse()?,
+                None => SessionVt::default(),
+            },
         }),
         None => Err("no terminal specified"),
     }?;
@@ -277,6 +309,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn session_vt_defaults_to_same() {
+        let config = parse_config(
+            "
+[terminal]
+vt = 1
+[default_session]
+command = \"agreety\"
+",
+        )
+        .expect("config didn't parse");
+        assert_eq!(config.terminal.session_vt, SessionVt::Same);
+    }
+
+    #[test]
+    fn session_vt_next() {
+        let config = parse_config(
+            "
+[terminal]
+vt = 1
+session_vt = \"next\"
+[default_session]
+command = \"agreety\"
+",
+        )
+        .expect("config didn't parse");
+        assert_eq!(config.terminal.session_vt, SessionVt::Next);
+    }
+
+    #[test]
+    fn session_vt_rejects_unknown_values() {
+        assert!(parse_config(
+            "
+[terminal]
+vt = 1
+session_vt = \"7\"
+[default_session]
+command = \"agreety\"
+",
+        )
+        .is_err());
+    }
+
+    #[test]
     fn minimal_config() {
         let config = parse_config(
             "
@@ -293,6 +368,7 @@ command = \"agreety\"
                 terminal: ConfigTerminal {
                     vt: VtSelection::Specific(1),
                     switch: true,
+                    session_vt: SessionVt::Same,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -322,6 +398,7 @@ user = \"john\"
                 terminal: ConfigTerminal {
                     vt: VtSelection::Specific(1),
                     switch: true,
+                    session_vt: SessionVt::Same,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -352,6 +429,7 @@ service = \"greetd-autologin\"
                 terminal: ConfigTerminal {
                     vt: VtSelection::Specific(1),
                     switch: true,
+                    session_vt: SessionVt::Same,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -385,6 +463,7 @@ runfile = \"/path/to/greetd.state\"
                 terminal: ConfigTerminal {
                     vt: VtSelection::Specific(1),
                     switch: true,
+                    session_vt: SessionVt::Same,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -429,6 +508,7 @@ vt = 1
                 terminal: ConfigTerminal {
                     vt: VtSelection::Specific(1),
                     switch: true,
+                    session_vt: SessionVt::Same,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -453,6 +533,7 @@ vt = next
                 terminal: ConfigTerminal {
                     vt: VtSelection::Next,
                     switch: true,
+                    session_vt: SessionVt::Same,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -477,6 +558,7 @@ vt = current
                 terminal: ConfigTerminal {
                     vt: VtSelection::Current,
                     switch: true,
+                    session_vt: SessionVt::Same,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),

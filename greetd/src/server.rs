@@ -66,7 +66,7 @@ async fn client_get_question(ctx: &Context) -> Response {
     }
 }
 
-async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
+async fn client_handler(ctx: &Rc<Context>, mut s: UnixStream) -> Result<(), Error> {
     loop {
         let req = match Request::read_from(&mut s).await {
             Ok(req) => req,
@@ -85,7 +85,20 @@ async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
                     res => wrap_result(res),
                 }
             }
-            Request::StartSession { cmd, env } => wrap_result(ctx.start(cmd, env).await),
+            Request::StartSession { cmd, env } => {
+                let res = ctx.start(cmd, env).await;
+                // WMDE: answer the greeter first, so it can let go of its UI while
+                // the session comes up; the handover itself runs on its own.
+                if res.is_ok() {
+                    let ctx = ctx.clone();
+                    task::spawn_local(async move {
+                        if let Err(e) = ctx.complete_handover().await {
+                            eprintln!("handover failed: {e}");
+                        }
+                    });
+                }
+                wrap_result(res)
+            }
             Request::CancelSession => wrap_result(ctx.cancel().await),
         };
 
@@ -234,6 +247,7 @@ pub async fn main(config: Config) -> Result<(), Error> {
         greeter_service.to_string(),
         service.to_string(),
         term_mode.clone(),
+        config.file.terminal.session_vt,
         config.file.general.source_profile,
         config.file.general.runfile,
         listener_path,

@@ -99,6 +99,27 @@ impl Terminal {
         }
     }
 
+    /// WMDE: whether this VT is in graphics mode. logind puts a session's VT in
+    /// graphics mode when the session's compositor takes control of the session,
+    /// which is how a handover tells the session is ready for its VT.
+    pub fn kd_is_graphics(&self) -> Result<bool, Error> {
+        let mut mode: libc::c_int = 0;
+        if let Err(v) = unsafe { ioctl::kd_getmode(self.fd, &raw mut mode) } {
+            return Err(format!("terminal: unable to get kernel display mode: {v}").into());
+        }
+        Ok(mode == ioctl::KDGRAPHICS)
+    }
+
+    /// WMDE: asks for a switch to the specified VT without waiting for it.
+    /// Unlike `vt_setactivate`, this keeps the target VT's mode, which logind
+    /// has set to VT_PROCESS for the session there.
+    pub fn vt_request_activate(&self, target_vt: usize) -> Result<(), Error> {
+        if let Err(v) = unsafe { ioctl::vt_activate(self.fd, target_vt as i32) } {
+            return Err(format!("terminal: unable to activate: {v}").into());
+        }
+        Ok(())
+    }
+
     /// Switches to the specified VT and waits for completion of switch.
     fn vt_activate(&self, target_vt: usize) -> Result<(), Error> {
         if let Err(v) = unsafe { ioctl::vt_activate(self.fd, target_vt as i32) } {
