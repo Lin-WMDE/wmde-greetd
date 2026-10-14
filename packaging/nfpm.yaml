@@ -1,0 +1,87 @@
+# Один конфиг nFPM на оба формата. Стейджинг готовит `just package-staging`,
+# версию всегда подставляет just через env WMDE_VERSION (см. justfile).
+# ВАЖНО: только ${WMDE_VERSION} без :-дефолта — nFPM раскрывает env через
+# os.ExpandEnv и :- не понимает (версия молча станет 0.0.0~rc0).
+name: wmde-greetd
+arch: amd64
+version: ${WMDE_VERSION}
+release: 1
+maintainer: WMDE <wmde@wmde.fun>
+description: |-
+  WMDE login manager daemon (greetd with seamless session handover)
+  Stands in for the distribution greetd package.
+homepage: https://wmde.fun
+license: GPL-3.0-only
+section: admin
+
+# Как в PKGBUILD + provides/conflicts на штатный greetd.
+depends:
+  - libc6 | glibc
+  - libgcc-s1 | libgcc
+  - libpam0g
+  - libsystemd0
+
+provides:
+  - greetd
+
+conflicts:
+  - greetd
+
+contents:
+  - src: target/staging/usr/bin/greetd
+    dst: /usr/bin/greetd
+    file_info: { mode: 0755 }
+  - src: target/staging/etc/greetd/config.toml
+    dst: /etc/greetd/config.toml
+    type: config|noreplace
+  - src: target/staging/etc/pam.d/greetd
+    dst: /etc/pam.d/greetd
+    type: config|noreplace
+  - src: target/staging/usr/lib/systemd/system/greetd.service
+    dst: /usr/lib/systemd/system/greetd.service
+    file_info: { mode: 0644 }
+  - src: target/staging/usr/lib/sysusers.d/greetd.conf
+    dst: /usr/lib/sysusers.d/greetd.conf
+    file_info: { mode: 0644 }
+  # doc (copyright + changelog.Debian.gz) готовит just package-doc.
+  # Только для deb: в rpm нет %doc-разметки у nFPM,
+  # а лицензия и changelog там и так есть (License-тег + %changelog).
+  - src: target/staging/usr/share/doc/wmde-greetd/
+    dst: /usr/share/doc/wmde-greetd/
+    type: tree
+    packager: deb
+
+scripts:
+  postinstall: packaging/postinstall.sh
+  postremove: packaging/postremove.sh
+
+# %changelog для rpm генерит just package-staging (иначе E: no-changelogname-tag).
+# Путь от корня репо: nFPM резолвит его от cwd, а не от каталога конфига.
+changelog: target/changelog.yaml
+
+overrides:
+  deb:
+    depends:
+      - libc6
+      - libgcc-s1
+      - libpam0g
+      - libsystemd0
+      # нужен бинарь systemd-sysusers в postinstall (создать greeter);
+      # standalone-версия чтобы не тянуть весь init в контейнеры
+      - systemd-standalone-sysusers | systemd
+    provides:
+      - greetd
+    conflicts:
+      - greetd
+  rpm:
+    # systemd целиком: нужен и бинарь sysusers в postinstall, и сам init в рантайме.
+    depends:
+      - libc.so.6()(64bit)
+      - libgcc_s.so.1()(64bit)
+      - libpam.so.0()(64bit)
+      - libsystemd.so.0()(64bit)
+      - systemd
+    provides:
+      - greetd
+    conflicts:
+      - greetd
