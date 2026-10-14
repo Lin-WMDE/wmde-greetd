@@ -41,6 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           path: wmde-greetd
       - name: Build deps
         run: |
@@ -72,6 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           path: wmde-greetd
       - name: Build deps
         run: |
